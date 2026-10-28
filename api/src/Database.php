@@ -61,22 +61,29 @@ final class Database
         ['access_requests', null],
     ];
 
+    /** Lo que falta en la BD para esta versión, p. ej. ["tabla dog_tasks", "columna dog_checks.task_id"]. */
+    public static function missingSchema(): array
+    {
+        $missing = [];
+        foreach (self::REQUIRED_SCHEMA as [$table, $column]) {
+            $found = $column === null
+                ? self::one('SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?', [$table])
+                : self::one(
+                    'SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?',
+                    [$table, $column],
+                );
+            if ($found === null) {
+                $missing[] = $column === null ? "tabla $table" : "columna $table.$column";
+            }
+        }
+        return $missing;
+    }
+
     /** 'ok' | 'desactualizada' | 'sin conexión' — para /health. */
     public static function schemaStatus(): string
     {
         try {
-            foreach (self::REQUIRED_SCHEMA as [$table, $column]) {
-                $found = $column === null
-                    ? self::one('SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?', [$table])
-                    : self::one(
-                        'SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?',
-                        [$table, $column],
-                    );
-                if ($found === null) {
-                    return 'desactualizada';
-                }
-            }
-            return 'ok';
+            return self::missingSchema() === [] ? 'ok' : 'desactualizada';
         } catch (\Throwable) {
             return 'sin conexión';
         }

@@ -8,6 +8,7 @@ declare(strict_types=1);
  *   sudo -u casa php bin/casa-admin.php aprobar <id>
  *   sudo -u casa php bin/casa-admin.php hacer-admin <telefono>
  *   sudo -u casa php bin/casa-admin.php miembros
+ *   sudo -u casa php bin/casa-admin.php diagnostico   ← ¿la BD está al día?
  */
 
 namespace Casa;
@@ -46,6 +47,21 @@ try {
             echo "Listo: $phone es administrador.\n";
             break;
 
+        case 'diagnostico':
+            // A qué BD se conecta la API (con el .env real) y qué le falta.
+            $info = Database::one('SELECT DATABASE() AS bd, CURRENT_USER() AS usuario, @@hostname AS servidor, VERSION() AS version');
+            printf("API v%s\nArchivo .env: %s\nBase de datos: %s\nUsuario: %s\nServidor MariaDB: %s (%s)\n",
+                API_VERSION, realpath(ROOT . '/.env') ?: 'NO ENCONTRADO', $info['bd'], $info['usuario'], $info['servidor'], $info['version']);
+            $missing = Database::missingSchema();
+            if ($missing === []) {
+                echo "✓ La base de datos está al día.\n";
+            } else {
+                echo "✗ Le falta: " . implode(', ', $missing) . "\n";
+                echo "  Corre:  sudo mariadb {$info['bd']} < " . realpath(ROOT . '/database/actualizar.sql') . "\n";
+                exit(1);
+            }
+            break;
+
         case 'miembros':
             foreach (Database::all('SELECT id, name, phone, role, last_seen_at FROM users ORDER BY name') as $u) {
                 printf("#%d  %-20s %s  %-6s  visto: %s\n", $u['id'], $u['name'], $u['phone'], $u['role'], $u['last_seen_at'] ?? '-');
@@ -53,7 +69,7 @@ try {
             break;
 
         default:
-            fwrite(STDERR, "Uso: php bin/casa-admin.php solicitudes | aprobar <id> | hacer-admin <telefono> | miembros\n");
+            fwrite(STDERR, "Uso: php bin/casa-admin.php solicitudes | aprobar <id> | hacer-admin <telefono> | miembros | diagnostico\n");
             exit(1);
     }
 } catch (HttpError $e) {
