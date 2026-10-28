@@ -5,6 +5,9 @@ namespace Casa;
 
 final class UserController
 {
+    /** Minutos que dura un código para pasar la cuenta a otro dispositivo. */
+    private const TRANSFER_MINUTES = 10;
+
     /**
      * POST /register  (pública)
      * { name, phone, device_id, house_code, platform? }
@@ -140,6 +143,77 @@ final class UserController
             Database::run('DELETE FROM access_requests WHERE token_hash = ?', [hash('sha256', strtolower($m[1]))]);
         }
         Http::json(['deleted' => true]);
+    }
+
+    /**
+     * POST /me/transfer-code → { code, expires_at }
+     * Código de 8 dígitos para pasar ESTA cuenta a otro dispositivo sin aprobación del admin:
+     * tenerlo demuestra que se tiene el dispositivo actual. Dura 10 minutos y es de un solo uso.
+     */
+    public static function createTransferCode(array $p, array $user): void
+    {
+        $code = sprintf('%08d', random_int(0, 99_999_999));
+        Database::run(
+            'REPLACE INTO device_transfers (user_id, code_hash, expires_at, created_at)
+             VALUES (?, ?, NOW() + INTERVAL ' . self::TRANSFER_MINUTES . ' MINUTE, NOW())',
+            [$user['id'], hash('sha256', $code)],
+        );
+        $row = Database::one('SELECT expires_at FROM device_transfers WHERE user_id = ?', [$user['id']]);
+        Security::audit($user, 'transfer_code_created', "{$user['name']} generó un código para pasar su cuenta a otro dispositivo");
+        Http::json(['code' => $code, 'expires_at' => $row['expires_at']], 201);
+    }
+
+    /**
+     * POST /register/transfer  (pública)  { code, device_id, platform? } → { status: "active", token, user }
+     * La cuenta pasa a este dispositivo y el anterior queda desconectado.
+     */
+    public static function redeemTransfer(): void
+    {
+        $in = Http::body();
+        Security::assertNotLimited('bad_code');
+
+        $code = preg_replace('/\D+/', '', (string) ($in['code'] ?? '')) ?? '';
+        $deviceId = Http::str($in, 'device_id', 100);
+        $platform = Http::str($in, 'platform', 20, false);
+
+        Database::run('DELETE FROM device_transfers WHERE expires_at < NOW()');
+        $transfer = strlen($code) === 8
+            ? Database::one('SELECT user_id FROM device_transfers WHERE code_hash = ?', [hash('sha256', $code)])
+            : null;
+        if ($transfer === null) {
+            Security::recordAttempt('bad_code');
+            Security::audit(null, 'bad_transfer_code', 'Intento de pasar una cuenta con un código incorrecto o vencido');
+            throw new HttpError(403, 'bad_transfer_code', 'El código no es correcto o ya venció. Genera otro en el dispositivo anterior.', [
+                'code' => 'Revisa los 8 números o genera un código nuevo.',
+            ]);
+        }
+
+        [$token, $hash] = Auth::newToken();
+        $userId = (int) $transfer['user_id'];
+        $pdo = Database::pdo();
+        $pdo->beginTransaction();
+        try {
+            // Si este dispositivo tenía otra cuenta o una solicitud pendiente, se liberan.
+            Database::run(
+                'UPDATE users SET device_id = CONCAT(\'liberado:\', id, \':\', ?), token_hash = ?, fcm_token = NULL WHERE device_id = ? AND id <> ?',
+                [bin2hex(random_bytes(6)), Auth::revokedHash(), $deviceId, $userId],
+            );
+            Database::run('DELETE FROM access_requests WHERE device_id = ?', [$deviceId]);
+            Database::run(
+                'UPDATE users SET device_id = ?, token_hash = ?, platform = ?, fcm_token = NULL, last_seen_at = NOW() WHERE id = ?',
+                [$deviceId, $hash, $platform, $userId],
+            );
+            Database::run('DELETE FROM device_transfers WHERE user_id = ?', [$userId]);
+            $pdo->commit();
+        } catch (\Throwable $e) {
+            $pdo->rollBack();
+            throw $e;
+        }
+
+        $user = Database::one('SELECT id, name, phone, role FROM users WHERE id = ?', [$userId]);
+        $user['id'] = (int) $user['id'];
+        Security::audit($user, 'device_transferred', "{$user['name']} pasó su cuenta a otro dispositivo con código");
+        Http::json(['status' => 'active', 'token' => $token, 'user' => $user]);
     }
 
     /** GET /users — lista de contactos de la casa. */

@@ -11,3 +11,6 @@ api/storage/cache/*
 api/public/uploads/dogs/*
 !api/public/uploads/dogs/.gitkeep
 backups/
+
+# APKs compilados
+*.apk

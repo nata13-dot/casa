@@ -5,38 +5,40 @@ namespace Casa;
 
 final class DogController
 {
-    private const TYPES = ['food', 'water'];
     private const MAX_PHOTO_BYTES = 6 * 1024 * 1024;
     private const MIME_EXT = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'];
 
     /**
-     * GET /dogs → perros con el estado de comida/agua de HOY.
-     * El checklist se reinicia solo cada día porque se filtra por check_date.
+     * GET /dogs → perros con sus tareas del día (comida mañana/noche, agua, pastillas…)
+     * y si ya se hicieron HOY. Se reinicia solo cada día porque se filtra por check_date.
+     * Las tareas de cada perro viven en dog_tasks.
      */
     public static function index(): void
     {
         Http::json(['date' => date('Y-m-d'), 'dogs' => self::todayStatus()]);
     }
 
-    /** POST /dogs/{id}/checks  { type: "food"|"water", done: bool } */
+    /** POST /dogs/{id}/checks  { task_id: int, done: bool } */
     public static function check(array $p, array $user): void
     {
-        $dogId = $p['id'];
         $in = Http::body();
-        $type = $in['type'] ?? null;
-        if (!in_array($type, self::TYPES, true) || !is_bool($in['done'] ?? null)) {
-            throw new HttpError(422, 'validation', 'Datos inválidos.', ['type' => 'Usa "food" o "water" y done true/false.']);
+        $taskId = $in['task_id'] ?? null;
+        if (!is_int($taskId) || !is_bool($in['done'] ?? null)) {
+            throw new HttpError(422, 'validation', 'Datos inválidos.', ['task_id' => 'Envía task_id (número) y done true/false.']);
         }
-        self::findDog($dogId);
+        $task = Database::one('SELECT id FROM dog_tasks WHERE id = ? AND dog_id = ? AND active = 1', [$taskId, $p['id']]);
+        if (!$task) {
+            throw new HttpError(404, 'not_found', 'Esa tarea no existe para este perrito. Actualiza la app.');
+        }
 
         if ($in['done']) {
             // INSERT IGNORE: si dos personas marcan a la vez, gana la primera.
             Database::run(
-                'INSERT IGNORE INTO dog_checks (dog_id, check_date, type, user_id, checked_at) VALUES (?, CURDATE(), ?, ?, NOW())',
-                [$dogId, $type, $user['id']],
+                'INSERT IGNORE INTO dog_checks (task_id, check_date, user_id, checked_at) VALUES (?, CURDATE(), ?, NOW())',
+                [$taskId, $user['id']],
             );
         } else {
-            Database::run('DELETE FROM dog_checks WHERE dog_id = ? AND check_date = CURDATE() AND type = ?', [$dogId, $type]);
+            Database::run('DELETE FROM dog_checks WHERE task_id = ? AND check_date = CURDATE()', [$taskId]);
         }
 
         Http::json(['date' => date('Y-m-d'), 'dogs' => self::todayStatus()]);
@@ -106,17 +108,25 @@ final class DogController
     private static function todayStatus(): array
     {
         $dogs = Database::all('SELECT id, name, photo_path FROM dogs ORDER BY sort_order, id');
-        $checks = Database::all(
-            'SELECT c.dog_id, c.type, c.checked_at, u.id AS user_id, u.name AS user_name
-               FROM dog_checks c JOIN users u ON u.id = c.user_id
-              WHERE c.check_date = CURDATE()',
+        $tasks = Database::all(
+            'SELECT t.id, t.dog_id, t.kind, t.label, c.checked_at, u.id AS user_id, u.name AS user_name
+               FROM dog_tasks t
+               LEFT JOIN dog_checks c ON c.task_id = t.id AND c.check_date = CURDATE()
+               LEFT JOIN users u ON u.id = c.user_id
+              WHERE t.active = 1
+              ORDER BY t.sort_order, t.id',
         );
 
         $byDog = [];
-        foreach ($checks as $c) {
-            $byDog[(int) $c['dog_id']][$c['type']] = [
-                'by' => ['id' => (int) $c['user_id'], 'name' => $c['user_name']],
-                'at' => $c['checked_at'],
+        foreach ($tasks as $t) {
+            $byDog[(int) $t['dog_id']][] = [
+                'id' => (int) $t['id'],
+                'kind' => $t['kind'],
+                'label' => $t['label'],
+                'done' => $t['checked_at'] === null ? null : [
+                    'by' => ['id' => (int) $t['user_id'], 'name' => $t['user_name']],
+                    'at' => $t['checked_at'],
+                ],
             ];
         }
 
@@ -125,8 +135,7 @@ final class DogController
             'id' => (int) $d['id'],
             'name' => $d['name'],
             'photo_url' => $d['photo_path'] ? "$base/{$d['photo_path']}" : null,
-            'food' => $byDog[(int) $d['id']]['food'] ?? null,
-            'water' => $byDog[(int) $d['id']]['water'] ?? null,
+            'tasks' => $byDog[(int) $d['id']] ?? [],
         ], $dogs);
     }
 }

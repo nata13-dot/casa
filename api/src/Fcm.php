@@ -15,8 +15,38 @@ final class Fcm
 
     public static function enabled(): bool
     {
+        return self::account() !== null;
+    }
+
+    /**
+     * Credenciales de la cuenta de servicio. Dos formas de darlas en .env:
+     *  1. FCM_PROJECT_ID + FCM_CLIENT_EMAIL + FCM_PRIVATE_KEY (valores copiados del JSON).
+     *  2. FCM_SERVICE_ACCOUNT = ruta al archivo JSON completo.
+     * Si están las dos, gana la 1.
+     * @return array{project_id:string, client_email:string, private_key:string, token_uri:string}|null
+     */
+    private static function account(): ?array
+    {
+        $projectId = env('FCM_PROJECT_ID');
+        $email = env('FCM_CLIENT_EMAIL');
+        $key = env('FCM_PRIVATE_KEY');
+        if ($projectId && $email && $key) {
+            return [
+                'project_id' => $projectId,
+                'client_email' => $email,
+                'private_key' => self::unescapeKey($key),
+                'token_uri' => 'https://oauth2.googleapis.com/token',
+            ];
+        }
+
         $path = env('FCM_SERVICE_ACCOUNT');
-        return $path !== null && is_readable($path);
+        if ($path === null || !is_readable($path)) {
+            return null;
+        }
+        $json = json_decode((string) file_get_contents($path), true);
+        return is_array($json) && isset($json['project_id'], $json['client_email'], $json['private_key'])
+            ? $json + ['token_uri' => 'https://oauth2.googleapis.com/token']
+            : null;
     }
 
     /**
@@ -26,12 +56,12 @@ final class Fcm
      */
     public static function sendToMany(array $recipients, string $title, string $body, array $data, bool $urgent): void
     {
-        if (!self::enabled() || !$recipients) {
+        $account = self::account();
+        if ($account === null || !$recipients) {
             return;
         }
 
         try {
-            $account = json_decode((string) file_get_contents((string) env('FCM_SERVICE_ACCOUNT')), true, flags: JSON_THROW_ON_ERROR);
             $accessToken = self::accessToken($account);
         } catch (\Throwable $e) {
             error_log('[FCM] No se pudo obtener access token: ' . $e->getMessage());
@@ -92,6 +122,16 @@ final class Fcm
             curl_multi_remove_handle($multi, $ch);
         }
         curl_multi_close($multi);
+    }
+
+    /**
+     * En .env la llave va en una sola línea, tal como aparece en el JSON
+     * (con \n y a veces \/ escritos). Se decodifica como cadena JSON.
+     */
+    private static function unescapeKey(string $key): string
+    {
+        $decoded = json_decode('"' . $key . '"');
+        return is_string($decoded) ? $decoded : str_replace('\n', "\n", $key);
     }
 
     /** @param array<string, string> $account */

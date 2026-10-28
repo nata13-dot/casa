@@ -33,8 +33,11 @@ function loadEnv(string $path): void
             continue;
         }
         [$key, $value] = array_map('trim', explode('=', $line, 2));
-        $value = trim($value, "\"'");
-        $_ENV[$key] = $value;
+        // Una variable real del entorno gana sobre el .env (útil para pruebas y despliegues).
+        if (getenv($key) !== false) {
+            continue;
+        }
+        $_ENV[$key] = trim($value, "\"'");
     }
 }
 

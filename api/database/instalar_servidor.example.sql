@@ -2,7 +2,7 @@
 --  Casa · instalación completa de la base de datos (servidor)
 -- ============================================================================
 --  Crea la base, el usuario de la app con permisos mínimos y todas las tablas
---  (equivale a 001_init.sql + 002_security.sql).
+--  (equivale a 001 … 004 de migrations/).
 --
 --  Uso en el servidor (Debian + MariaDB):
 --      sudo mariadb < instalar_servidor.sql
@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS users (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------
--- Perros y checklist diario (una fila por perro/día/tipo = marcado).
+-- Perros y checklist diario.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS dogs (
   id          TINYINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -68,17 +68,39 @@ CREATE TABLE IF NOT EXISTS dogs (
 
 INSERT IGNORE INTO dogs (name, sort_order) VALUES ('Luna', 1), ('Romeo', 2), ('Mushu', 3);
 
+-- Tareas diarias por perro: comida mañana/noche, agua y medicinas (p. ej. Mushu).
+CREATE TABLE IF NOT EXISTS dog_tasks (
+  id          SMALLINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  dog_id      TINYINT UNSIGNED NOT NULL,
+  kind        ENUM('food','water','medicine') NOT NULL,
+  label       VARCHAR(40)  NOT NULL COMMENT 'Momento del día: Mañana, Noche, Hoy…',
+  sort_order  TINYINT UNSIGNED NOT NULL DEFAULT 0,
+  active      TINYINT(1)   NOT NULL DEFAULT 1 COMMENT '0 = ya no se muestra (conserva historial)',
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_task (dog_id, kind, label),
+  CONSTRAINT fk_task_dog FOREIGN KEY (dog_id) REFERENCES dogs (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT IGNORE INTO dog_tasks (dog_id, kind, label, sort_order)
+SELECT id, 'food',  'Mañana', 1 FROM dogs
+UNION ALL SELECT id, 'food',  'Noche', 2 FROM dogs
+UNION ALL SELECT id, 'water', 'Hoy',   3 FROM dogs;
+
+INSERT IGNORE INTO dog_tasks (dog_id, kind, label, sort_order)
+SELECT id, 'medicine', 'Mañana', 4 FROM dogs WHERE name = 'Mushu'
+UNION ALL SELECT id, 'medicine', 'Noche', 5 FROM dogs WHERE name = 'Mushu';
+
+-- Una fila por tarea/día = hecha.
 CREATE TABLE IF NOT EXISTS dog_checks (
   id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
-  dog_id      TINYINT UNSIGNED NOT NULL,
+  task_id     SMALLINT UNSIGNED NOT NULL,
   check_date  DATE         NOT NULL,
-  type        ENUM('food','water') NOT NULL,
   user_id     INT UNSIGNED NOT NULL,
   checked_at  DATETIME     NOT NULL,
   PRIMARY KEY (id),
-  UNIQUE KEY uq_check (dog_id, check_date, type),
+  UNIQUE KEY uq_check (task_id, check_date),
   KEY idx_check_date (check_date),
-  CONSTRAINT fk_check_dog  FOREIGN KEY (dog_id)  REFERENCES dogs (id)  ON DELETE CASCADE,
+  CONSTRAINT fk_check_task FOREIGN KEY (task_id) REFERENCES dog_tasks (id) ON DELETE CASCADE,
   CONSTRAINT fk_check_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -157,6 +179,17 @@ CREATE TABLE IF NOT EXISTS settings (
   value       VARCHAR(255) NOT NULL,
   updated_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Pasar la cuenta a otro dispositivo con un código temporal (10 min).
+CREATE TABLE IF NOT EXISTS device_transfers (
+  user_id     INT UNSIGNED NOT NULL,
+  code_hash   CHAR(64)     NOT NULL,
+  expires_at  DATETIME     NOT NULL,
+  created_at  DATETIME     NOT NULL,
+  PRIMARY KEY (user_id),
+  UNIQUE KEY uq_transfer_code (code_hash),
+  CONSTRAINT fk_transfer_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Resumen

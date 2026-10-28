@@ -83,7 +83,20 @@ Si prefieres lo rápido (menos seguro):
 3. Haz clic en **Generar nueva clave privada** → **Generar clave**.
 4. Se descarga un archivo `.json` (algo como `casa-1a2b3-firebase-adminsdk-xxxx.json`).
 
-### Subirla al servidor
+### Opción A: pegar los valores en `api/.env` (la más sencilla)
+
+Abre el `.json` descargado con un editor de texto y copia 3 valores a `api/.env`:
+
+```ini
+FCM_PROJECT_ID=casa-1a2b3                                   # "project_id"
+FCM_CLIENT_EMAIL=casa-push@casa-1a2b3.iam.gserviceaccount.com  # "client_email"
+FCM_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nMIIEv...\n-----END PRIVATE KEY-----\n"  # "private_key"
+```
+
+- `FCM_PRIVATE_KEY` se copia **completa y tal cual** del JSON: es una sola línea larga con `\n` escritos, entre comillas dobles. No la partas en varias líneas.
+- Si usas esta opción, no necesitas subir el `.json` al servidor; bórralo cuando termines.
+
+### Opción B: subir el archivo `.json` al servidor
 
 Desde tu computadora:
 
@@ -100,7 +113,7 @@ sudo chown root:casa /etc/casa/firebase-service-account.json   # usuario del poo
 sudo chmod 640 /etc/casa/firebase-service-account.json
 ```
 
-En `api/.env`:
+En `api/.env` (deja vacíos `FCM_PROJECT_ID`, `FCM_CLIENT_EMAIL` y `FCM_PRIVATE_KEY`):
 
 ```ini
 FCM_SERVICE_ACCOUNT=/etc/casa/firebase-service-account.json

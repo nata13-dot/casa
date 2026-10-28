@@ -9,7 +9,7 @@ Casa/
 │   ├── public/index.php    Front controller + tabla de rutas
 │   ├── public/uploads/     Fotos de los perros (estáticas, nombre aleatorio)
 │   ├── src/                Router, Auth, Database, Fcm, Categories, controllers/
-│   ├── database/migrations/001_init.sql, 002_security.sql
+│   ├── database/migrations/001 … 004 (init, security, dog_tasks, device_transfer)
 │   ├── deploy/nginx-casa.conf, php-fpm-casa.conf
 │   └── .env.example
 ├── app/                    React 19 + Vite + TypeScript + Capacitor 8
@@ -157,13 +157,15 @@ Todas las respuestas tienen la forma:
 | GET | `/health` 🔓 | — | `{ ok, time }` |
 | POST | `/register` 🔓 | `{ name, phone, device_id, house_code, platform? }` | 201 `{ status:"active", token, user }` (primer registro) · 202 `{ status:"pending", token }` |
 | DELETE | `/register` 🔓 | — (token de solicitud) | `{ deleted }` |
+| POST | `/register/transfer` 🔓 | `{ code, device_id, platform? }` | `{ status:"active", token, user }` |
+| POST | `/me/transfer-code` | — | `{ code, expires_at }` (8 dígitos, 10 min, un solo uso) |
 | GET | `/me` | — | `User` |
 | PUT | `/me` | `{ name?, phone? }` | `User` |
 | DELETE | `/me` | — | `{ deleted }` |
 | PUT | `/me/push-token` | `{ token \| null }` | `{ registered }` |
 | GET | `/users` | — | `Contact[]` |
 | GET | `/dogs` | — | `DogsToday` |
-| POST | `/dogs/{id}/checks` | `{ type: "food"\|"water", done: bool }` | `DogsToday` |
+| POST | `/dogs/{id}/checks` | `{ task_id: int, done: bool }` | `DogsToday` |
 | POST | `/dogs/{id}/photo` | multipart `photo` (JPG/PNG/WEBP ≤ 6 MB) | `DogsToday` |
 | DELETE | `/dogs/{id}/photo` | — | `DogsToday` |
 | GET | `/announcements?status=active\|done` | — | `Announcement[]` |
@@ -193,10 +195,22 @@ Los tipos TypeScript equivalentes están en `app/src/types/api.ts`.
 **Registro por dispositivo:**
 - El primer registro de todos → administrador, sin aprobación.
 - Cualquier otro (incluido un cambio de celular con un número existente) → solicitud pendiente hasta que un admin la apruebe. Al aprobar un cambio de celular, el anterior queda desconectado.
+- **Pasar la cuenta a otro celular sin aprobación:** Ajustes › *Usar mi cuenta en otro celular* genera un código de 8 dígitos (10 min); en el celular nuevo, *Ya tengo cuenta en otro dispositivo*. El anterior se desconecta.
 - Sesiones sin uso durante 6 meses se cierran solas.
 - El token se guarda en BD solo como hash SHA-256; en el celular, cifrado con Android Keystore.
 
 **Checklist diario:** no hay cron. Cada día empieza vacío porque se filtra por `check_date = CURDATE()` (zona horaria `APP_TIMEZONE`).
+
+**Tareas de cada perro** (`dog_tasks`): todos tienen Comida *Mañana* y *Noche* y Agua; Mushu además Pastilla *Mañana* y *Noche*. Para cambiar tareas no hace falta tocar código:
+
+```sql
+-- Agregar (p. ej. vitamina diaria a Luna)
+INSERT INTO dog_tasks (dog_id, kind, label, sort_order) SELECT id, 'medicine', 'Mañana', 6 FROM dogs WHERE name = 'Luna';
+-- Quitar sin perder historial (p. ej. Mushu termina su tratamiento)
+UPDATE dog_tasks t JOIN dogs d ON d.id = t.dog_id SET t.active = 0 WHERE d.name = 'Mushu' AND t.kind = 'medicine';
+```
+
+`kind` puede ser `food`, `water` o `medicine`. Las tareas con *Noche* o *Tarde* en el nombre se marcan como “Toca ahora” a partir de las 17:00.
 
 ---
 
