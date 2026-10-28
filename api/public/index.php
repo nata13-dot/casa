@@ -20,7 +20,12 @@ Http::cors();
 
 $r = new Router();
 
-$r->add('GET', '/health', static fn() => Http::json(['ok' => true, 'version' => API_VERSION, 'time' => date('c')]), public: true);
+$r->add('GET', '/health', static fn() => Http::json([
+    'ok' => true,
+    'version' => API_VERSION,
+    'database' => Database::schemaStatus(),
+    'time' => date('c'),
+]), public: true);
 $r->add('POST', '/register', [UserController::class, 'register'], public: true);
 $r->add('DELETE', '/register', [UserController::class, 'cancelRequest'], public: true);
 $r->add('POST', '/register/transfer', [UserController::class, 'redeemTransfer'], public: true);
@@ -62,5 +67,9 @@ try {
     Http::error($e);
 } catch (\Throwable $e) {
     error_log('[Casa API] ' . $e);
+    if (Database::isOutdatedSchemaError($e)) {
+        Http::error(new HttpError(503, 'db_outdated',
+            'La base de datos del servidor no está actualizada. Hay que correr database/actualizar.sql.'));
+    }
     Http::error(new HttpError(500, 'server_error', 'Algo salió mal en el servidor. Intenta de nuevo.'));
 }

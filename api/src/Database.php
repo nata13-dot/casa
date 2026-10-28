@@ -53,6 +53,41 @@ final class Database
         return $stmt->rowCount();
     }
 
+    /** Tablas/columnas que exige esta versión de la API (las crea database/actualizar.sql). */
+    private const REQUIRED_SCHEMA = [
+        ['dog_tasks', null],
+        ['device_transfers', null],
+        ['dog_checks', 'task_id'],
+        ['access_requests', null],
+    ];
+
+    /** 'ok' | 'desactualizada' | 'sin conexión' — para /health. */
+    public static function schemaStatus(): string
+    {
+        try {
+            foreach (self::REQUIRED_SCHEMA as [$table, $column]) {
+                $found = $column === null
+                    ? self::one('SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?', [$table])
+                    : self::one(
+                        'SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?',
+                        [$table, $column],
+                    );
+                if ($found === null) {
+                    return 'desactualizada';
+                }
+            }
+            return 'ok';
+        } catch (\Throwable) {
+            return 'sin conexión';
+        }
+    }
+
+    /** ¿El error es porque falta una tabla o columna (BD sin actualizar)? */
+    public static function isOutdatedSchemaError(\Throwable $e): bool
+    {
+        return $e instanceof \PDOException && in_array($e->getCode(), ['42S02', '42S22'], true);
+    }
+
     public static function lastId(): int
     {
         return (int) self::pdo()->lastInsertId();
