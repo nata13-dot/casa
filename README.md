@@ -45,7 +45,26 @@ sudo mariadb < /tmp/instalar_servidor.sql
 shred -u /tmp/instalar_servidor.sql        # contiene la contraseña
 ```
 
-Es idempotente (no borra datos si se vuelve a correr). Los archivos `001_init.sql` y `002_security.sql` quedan como historial de migraciones para instalaciones anteriores.
+Es idempotente (no borra datos si se vuelve a correr). La carpeta `migrations/` queda como historial.
+
+### Actualizar el servidor (cada vez que cambie la API)
+
+Desde tu computadora, un solo comando sube la API, respalda la BD, la actualiza y comprueba la versión:
+
+```bash
+./api/deploy/subir_api.sh usuario@servidor            # la API vive en /var/www/casa/api
+./api/deploy/subir_api.sh usuario@servidor /otra/ruta # si está en otra carpeta
+```
+
+No toca el `.env`, las fotos ni la caché del servidor. Los respaldos quedan en `~/casa_respaldos/` del servidor.
+
+A mano, el SQL es siempre el mismo y se puede repetir sin problema:
+
+```bash
+sudo mariadb casa < api/database/actualizar.sql
+```
+
+Para saber qué versión tiene el servidor: `curl https://casa.espinazodeldiablo.site/api/health` → `"version":"1.1"`. Si la app muestra *"El servidor tiene una versión anterior"*, falta este paso.
 
 **Pasar datos de local al servidor** (o sacar respaldos):
 

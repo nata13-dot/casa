@@ -9,6 +9,9 @@ namespace Casa;
 
 const ROOT = __DIR__ . '/..';
 
+/** Versión de la API. La app la compara para avisar si el servidor está desactualizado. */
+const API_VERSION = '1.1';
+
 spl_autoload_register(static function (string $class): void {
     if (!str_starts_with($class, 'Casa\\')) {
         return;

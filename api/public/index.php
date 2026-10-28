@@ -20,7 +20,7 @@ Http::cors();
 
 $r = new Router();
 
-$r->add('GET', '/health', static fn() => Http::json(['ok' => true, 'time' => date('c')]), public: true);
+$r->add('GET', '/health', static fn() => Http::json(['ok' => true, 'version' => API_VERSION, 'time' => date('c')]), public: true);
 $r->add('POST', '/register', [UserController::class, 'register'], public: true);
 $r->add('DELETE', '/register', [UserController::class, 'cancelRequest'], public: true);
 $r->add('POST', '/register/transfer', [UserController::class, 'redeemTransfer'], public: true);
