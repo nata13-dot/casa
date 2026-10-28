@@ -1,0 +1,13 @@
+# Secretos
+api/.env
+api/database/instalar_servidor.sql
+*.jks
+*firebase-adminsdk*.json
+*service-account*.json
+
+# Generados en el servidor
+api/storage/cache/*
+!api/storage/cache/.gitkeep
+api/public/uploads/dogs/*
+!api/public/uploads/dogs/.gitkeep
+backups/
