@@ -74,7 +74,11 @@ try {
                 echo $u['ok'] ? "✓ {$u['name']}: celular registrado\n" : "· {$u['name']}: sin celular registrado (debe abrir la app instalada y permitir notificaciones)\n";
             }
             // Fotos de los perritos: el archivo debe existir y la URL pública debe ser la del dominio.
-            echo "\nFotos de los perritos (PUBLIC_URL = " . (env('PUBLIC_URL') ?? 'SIN DEFINIR') . "):\n";
+            $publicUrl = env('PUBLIC_URL') ?? 'SIN DEFINIR';
+            echo "\nFotos de los perritos (PUBLIC_URL = $publicUrl):\n";
+            if (str_contains($publicUrl, 'tudominio') || $publicUrl === 'SIN DEFINIR') {
+                echo "✗ PUBLIC_URL no es tu dominio → pon en .env  PUBLIC_URL=https://casa.espinazodeldiablo.site\n";
+            }
             foreach (Database::all('SELECT name, photo_path FROM dogs ORDER BY sort_order') as $d) {
                 if (!$d['photo_path']) {
                     echo "· {$d['name']}: sin foto\n";

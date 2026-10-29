@@ -130,7 +130,7 @@ final class DogController
             ];
         }
 
-        $base = rtrim((string) env('PUBLIC_URL', ''), '/');
+        $base = Http::publicUrl();
         return array_map(static fn(array $d) => [
             'id' => (int) $d['id'],
             'name' => $d['name'],

@@ -24,6 +24,26 @@ final class Http
     /** @var array<string, mixed>|null */
     private static ?array $jsonBody = null;
 
+    /**
+     * URL pública de la API (para armar las URLs de las fotos). Usa PUBLIC_URL del .env;
+     * si está vacío o se quedó con el ejemplo, la saca del dominio por el que llegó la petición
+     * (Cloudflare Tunnel conserva el Host y avisa https en X-Forwarded-Proto).
+     */
+    public static function publicUrl(): string
+    {
+        $configured = rtrim((string) env('PUBLIC_URL', ''), '/');
+        if ($configured !== '' && !str_contains($configured, 'tudominio')) {
+            return $configured;
+        }
+        $host = $_SERVER['HTTP_HOST'] ?? '';
+        if (!preg_match('/^[a-z0-9.-]+(:\d+)?$/i', $host)) {
+            return '';
+        }
+        $https = ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https' || ($_SERVER['HTTPS'] ?? '') === 'on'
+            || isset($_SERVER['HTTP_CF_VISITOR']);
+        return ($https ? 'https' : 'http') . "://$host";
+    }
+
     public static function json(mixed $data, int $status = 200): never
     {
         http_response_code($status);
