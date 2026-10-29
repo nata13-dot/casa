@@ -59,6 +59,7 @@ final class Database
         ['device_transfers', null],
         ['dog_checks', 'task_id'],
         ['access_requests', null],
+        ['users', 'notify_prefs'],
     ];
 
     /** Lo que falta en la BD para esta versión, p. ej. ["tabla dog_tasks", "columna dog_checks.task_id"]. */

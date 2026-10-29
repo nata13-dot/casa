@@ -80,11 +80,11 @@ final class UserController
 
         Http::jsonThen(['status' => 'pending', 'token' => $token], 202, static function () use ($summary) {
             Fcm::sendToMany(
-                Database::all("SELECT id, fcm_token FROM users WHERE role = 'admin' AND fcm_token IS NOT NULL"),
+                Database::all("SELECT id, fcm_token, notify_prefs FROM users WHERE role = 'admin' AND fcm_token IS NOT NULL"),
                 '🔐 Solicitud de acceso',
                 "$summary. Ábrela en Ajustes › Administración.",
                 ['type' => 'access_request'],
-                false,
+                'avisos',
             );
         });
     }
@@ -124,6 +124,58 @@ final class UserController
         }
         Database::run('UPDATE users SET fcm_token = ? WHERE id = ?', [$token, $user['id']]);
         Http::json(['registered' => $token !== null]);
+    }
+
+    /** GET /me/notifications — tonos por tipo y si recibe recordatorios de los perritos. */
+    public static function notifications(array $p, array $user): void
+    {
+        $row = Database::one('SELECT notify_prefs FROM users WHERE id = ?', [$user['id']]);
+        Http::json(Fcm::prefs($row['notify_prefs'] ?? null));
+    }
+
+    /** PUT /me/notifications  { tones?: {avisos?, urgentes?, perritos?}, dog_reminders?: bool } */
+    public static function updateNotifications(array $p, array $user): void
+    {
+        $in = Http::body();
+        $row = Database::one('SELECT notify_prefs FROM users WHERE id = ?', [$user['id']]);
+        $prefs = Fcm::prefs($row['notify_prefs'] ?? null);
+
+        foreach ((array) ($in['tones'] ?? []) as $kind => $tone) {
+            if (!isset(Fcm::DEFAULT_TONES[$kind]) || !in_array($tone, Fcm::TONES, true)) {
+                throw new HttpError(422, 'validation', 'Tono no válido.', ['tones' => "Tono no válido para $kind."]);
+            }
+            $prefs['tones'][$kind] = $tone;
+        }
+        if (array_key_exists('dog_reminders', $in)) {
+            $prefs['dog_reminders'] = (bool) $in['dog_reminders'];
+        }
+
+        Database::run('UPDATE users SET notify_prefs = ? WHERE id = ?', [json_encode($prefs), $user['id']]);
+        Http::json($prefs);
+    }
+
+    /** POST /me/test-push  { kind?: avisos|urgentes|perritos } — manda una notificación de prueba a este celular. */
+    public static function testPush(array $p, array $user): void
+    {
+        if (!Fcm::enabled()) {
+            throw new HttpError(503, 'push_disabled',
+                'El servidor no tiene las llaves de Firebase. Revisa FCM_PROJECT_ID, FCM_CLIENT_EMAIL y FCM_PRIVATE_KEY en el .env.');
+        }
+        $row = Database::one('SELECT id, fcm_token, notify_prefs FROM users WHERE id = ?', [$user['id']]);
+        if (!$row['fcm_token']) {
+            throw new HttpError(409, 'no_push_token',
+                'Este celular todavía no está registrado para notificaciones. Cierra la app por completo y vuelve a abrirla.');
+        }
+        $kind = (string) (Http::body()['kind'] ?? 'avisos');
+        if (!isset(Fcm::DEFAULT_TONES[$kind])) {
+            $kind = 'avisos';
+        }
+        $result = Fcm::sendToMany([$row], '🔔 Prueba de notificación', 'Si ves y escuchas esto, las notificaciones funcionan.',
+            ['type' => 'test'], $kind, 'prueba');
+        if (($result[$user['id']] ?? '') !== 'ok') {
+            throw new HttpError(502, 'push_failed', 'Firebase no pudo enviarla: ' . ($result[$user['id']] ?? 'sin respuesta'));
+        }
+        Http::json(['sent' => true]);
     }
 
     /** DELETE /me  — "Salir de la app" en este dispositivo. */

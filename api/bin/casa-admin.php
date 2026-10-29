@@ -8,7 +8,8 @@ declare(strict_types=1);
  *   sudo -u casa php bin/casa-admin.php aprobar <id>
  *   sudo -u casa php bin/casa-admin.php hacer-admin <telefono>
  *   sudo -u casa php bin/casa-admin.php miembros
- *   sudo -u casa php bin/casa-admin.php diagnostico   ← ¿la BD está al día?
+ *   sudo -u casa php bin/casa-admin.php diagnostico   ← ¿la BD y las notificaciones están bien?
+ *   sudo -u casa php bin/casa-admin.php probar-push <telefono>
  */
 
 namespace Casa;
@@ -60,6 +61,32 @@ try {
                 echo "  Corre:  sudo mariadb {$info['bd']} < " . realpath(ROOT . '/database/actualizar.sql') . "\n";
                 exit(1);
             }
+
+            // Notificaciones: extensiones de PHP, llaves de Firebase, celulares registrados y el timer.
+            echo "\nNotificaciones:\n";
+            foreach (['curl', 'openssl'] as $ext) {
+                echo extension_loaded($ext) ? "✓ PHP $ext\n" : "✗ Falta PHP $ext → sudo apt install php8.2-$ext && sudo systemctl restart php8.2-fpm\n";
+            }
+            echo Fcm::enabled() ? "✓ Llaves de Firebase en .env\n" : "✗ Sin llaves de Firebase (FCM_PROJECT_ID, FCM_CLIENT_EMAIL, FCM_PRIVATE_KEY)\n";
+            $cache = ROOT . '/storage/cache';
+            echo is_writable($cache) ? "✓ storage/cache se puede escribir\n" : "✗ storage/cache no se puede escribir → sudo chown casa: $cache\n";
+            foreach (Database::all('SELECT name, fcm_token IS NOT NULL AS ok FROM users ORDER BY name') as $u) {
+                echo $u['ok'] ? "✓ {$u['name']}: celular registrado\n" : "· {$u['name']}: sin celular registrado (debe abrir la app instalada y permitir notificaciones)\n";
+            }
+            echo "Recordatorios: revisa con  systemctl list-timers casa-recordatorios.timer\n";
+            echo "Probar a un miembro:  php bin/casa-admin.php probar-push <telefono>\n";
+            break;
+
+        case 'probar-push':
+            $phone = UserController::normalizePhone((string) $arg);
+            $u = Database::one('SELECT id, name, fcm_token, notify_prefs FROM users WHERE phone = ?', [$phone]);
+            if (!$u || !$u['fcm_token']) {
+                throw new \RuntimeException("No hay un miembro con el teléfono $phone y celular registrado para notificaciones.");
+            }
+            $result = Fcm::sendToMany([$u], '🔔 Prueba desde el servidor', 'Si ves esto, las notificaciones funcionan.', ['type' => 'test'], 'avisos', 'prueba');
+            echo ($result[(int) $u['id']] ?? 'Firebase sin configurar') === 'ok'
+                ? "✓ Enviada a {$u['name']}\n"
+                : "✗ Falló: " . ($result[(int) $u['id']] ?? 'Firebase sin configurar') . "\n";
             break;
 
         case 'miembros':
@@ -69,7 +96,7 @@ try {
             break;
 
         default:
-            fwrite(STDERR, "Uso: php bin/casa-admin.php solicitudes | aprobar <id> | hacer-admin <telefono> | miembros | diagnostico\n");
+            fwrite(STDERR, "Uso: php bin/casa-admin.php solicitudes | aprobar <id> | hacer-admin <telefono> | miembros | diagnostico | probar-push <telefono>\n");
             exit(1);
     }
 } catch (HttpError $e) {

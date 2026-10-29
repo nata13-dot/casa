@@ -200,3 +200,40 @@ sudo grep FCM /var/log/casa/php-error.log | tail -20
 ```
 
 La API limpia sola los tokens inválidos (app desinstalada o datos borrados): cuando Firebase responde `UNREGISTERED`, pone `fcm_token = NULL`.
+
+## 10. Tonos, prueba rápida y recordatorios de los perritos (v1.2)
+
+**Tonos.** Cada persona elige en *Ajustes › Notificaciones* el tono de cada tipo:
+
+| Tipo | Tono por defecto | Ícono |
+|---|---|---|
+| Avisos | Campanita | casa con huellita |
+| Urgentes | Alarma | campana con "!" |
+| Perritos | Silbido | huella con corazón |
+
+Los tonos van dentro del APK (`res/raw/tono_*.ogg`). Android no deja cambiar el sonido de un canal ya creado, así que la app crea un canal por tipo y tono, por ejemplo `avisos_campanita`, y borra el anterior. La API manda cada notificación al canal del tono que eligió esa persona (`users.notify_prefs`).
+
+**Probar.** Usa cualquiera de estas dos:
+- En el celular: *Ajustes › Notificaciones › Enviar notificación de prueba*. Si falla, muestra el motivo exacto que da Firebase.
+- En el servidor:
+  ```bash
+  cd /var/www/casa/api
+  sudo -u casa php bin/casa-admin.php diagnostico          # revisa llaves, curl/openssl y quién tiene celular registrado
+  sudo -u casa php bin/casa-admin.php probar-push 5512345678
+  ```
+
+**Recordatorios de los perritos.** `bin/recordatorios.php` corre cada 5 minutos:
+- Desde las **10:00**, mientras falte por marcar la comida (o la pastilla de Mushu) de la *Mañana*.
+- Desde las **21:30**, lo mismo con la de la *Noche*.
+
+Se detiene en cuanto alguien lo marca en la app. Cada recordatorio reemplaza al anterior, así que no se amontonan. Cada persona los puede apagar en Ajustes. Las horas se cambian en `.env` con `RECORDATORIO_MANANA=10:00` y `RECORDATORIO_NOCHE=21:30`.
+
+Instalar el timer, una sola vez (`deploy/subir_api.sh` ya lo hace solo):
+
+```bash
+sudo cp /var/www/casa/api/deploy/casa-recordatorios.* /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now casa-recordatorios.timer
+systemctl list-timers casa-recordatorios.timer     # próxima ejecución
+journalctl -u casa-recordatorios -n 20             # qué envió
+sudo -u casa php bin/recordatorios.php --probar    # enviar uno ya, sin esperar la hora
+```

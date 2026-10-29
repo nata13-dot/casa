@@ -1,0 +1,13 @@
+# /etc/systemd/system/casa-recordatorios.service
+# Revisa si faltan comida/pastillas de los perritos y avisa a todos (bin/recordatorios.php).
+# Lo dispara casa-recordatorios.timer cada 5 minutos.
+[Unit]
+Description=Casa: recordatorios de comida de los perritos
+After=mariadb.service network-online.target
+
+[Service]
+Type=oneshot
+User=casa
+Group=casa
+ExecStart=/usr/bin/php /var/www/casa/api/bin/recordatorios.php
+Nice=10

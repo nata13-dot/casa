@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS users (
   device_id     VARCHAR(100) NOT NULL,
   token_hash    CHAR(64)     NOT NULL,
   fcm_token     VARCHAR(255) NULL,
+  notify_prefs  VARCHAR(255) NULL COMMENT 'JSON: tonos y recordatorios; NULL = por defecto',
   platform      VARCHAR(20)  NULL,
   approved_by   INT UNSIGNED NULL,
   approved_at   DATETIME     NULL,

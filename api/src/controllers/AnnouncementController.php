@@ -88,7 +88,7 @@ final class AnnouncementController
 
         Http::jsonThen($created, 201, static function () use ($created, $user) {
             $recipients = Database::all(
-                'SELECT id, fcm_token FROM users WHERE fcm_token IS NOT NULL AND id <> ?',
+                'SELECT id, fcm_token, notify_prefs FROM users WHERE fcm_token IS NOT NULL AND id <> ?',
                 [$user['id']],
             );
             $prefix = match ($created['priority']) {
@@ -101,7 +101,8 @@ final class AnnouncementController
                 $prefix . Categories::label($created['category']) . ' · ' . $user['name'],
                 $created['title'] . ($created['body'] ? "\n" . $created['body'] : ''),
                 ['type' => 'announcement', 'announcement_id' => (string) $created['id'], 'priority' => $created['priority']],
-                $created['priority'] === 'urgente',
+                $created['priority'] === 'urgente' ? 'urgentes' : 'avisos',
+                'aviso-' . $created['id'],
             );
         });
     }

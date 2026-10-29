@@ -34,6 +34,9 @@ $r->add('GET', '/me', [UserController::class, 'me']);
 $r->add('PUT', '/me', [UserController::class, 'update']);
 $r->add('DELETE', '/me', [UserController::class, 'destroy']);
 $r->add('PUT', '/me/push-token', [UserController::class, 'pushToken']);
+$r->add('GET', '/me/notifications', [UserController::class, 'notifications']);
+$r->add('PUT', '/me/notifications', [UserController::class, 'updateNotifications']);
+$r->add('POST', '/me/test-push', [UserController::class, 'testPush']);
 $r->add('POST', '/me/transfer-code', [UserController::class, 'createTransferCode']);
 $r->add('GET', '/users', [UserController::class, 'index']);
 

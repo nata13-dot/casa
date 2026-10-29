@@ -10,6 +10,7 @@
 #        - respaldo de la BD en ~/casa_respaldos/
 #        - copia los archivos a la carpeta de la API (NO toca .env, fotos ni caché)
 #        - corre database/actualizar.sql (se puede repetir sin problema)
+#        - instala/actualiza el timer de recordatorios de los perritos
 #        - recarga PHP-FPM
 #   3. Comprueba que la API pública responda con la versión nueva.
 set -euo pipefail
@@ -51,6 +52,11 @@ sudo rsync -a --no-owner --no-group --chmod=D755,F644 \
   ~/$STAGE/ "$DEST/"
 echo "▶ Actualizando la base de datos"
 sudo mariadb casa < "$DEST/database/actualizar.sql"
+echo "▶ Recordatorios de los perritos (cada 5 min)"
+sudo cp "$DEST/deploy/casa-recordatorios.service" "$DEST/deploy/casa-recordatorios.timer" /etc/systemd/system/
+sudo sed -i "s#/var/www/casa/api#$DEST#" /etc/systemd/system/casa-recordatorios.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now casa-recordatorios.timer
 echo "▶ Recargando PHP-FPM"
 sudo systemctl reload php8.2-fpm
 rm -rf ~/$STAGE

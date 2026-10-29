@@ -49,43 +49,92 @@ final class Fcm
             : null;
     }
 
+    /** Tonos incluidos en la app (android/app/src/main/res/raw/tono_*.ogg); "sistema" = el del celular. */
+    public const TONES = ['campanita', 'melodia', 'burbuja', 'silbido', 'alarma', 'sistema'];
+
+    /** Tipo de notificación → tono por defecto. */
+    public const DEFAULT_TONES = ['avisos' => 'campanita', 'urgentes' => 'alarma', 'perritos' => 'silbido'];
+
+    /** Ícono (res/drawable/ic_stat_*) y color de acento por tipo. */
+    private const STYLE = [
+        'avisos' => ['ic_stat_casa', '#B5481F'],
+        'urgentes' => ['ic_stat_urgente', '#D93036'],
+        'perritos' => ['ic_stat_perritos', '#C77A12'],
+    ];
+
     /**
-     * Envía la misma notificación a varios usuarios.
-     * @param array<int, array{id:int|string, fcm_token:string}> $recipients
-     * @param array<string, string> $data
+     * Preferencias de notificación guardadas en users.notify_prefs (JSON), con defaults.
+     * @return array{tones: array<string, string>, dog_reminders: bool}
      */
-    public static function sendToMany(array $recipients, string $title, string $body, array $data, bool $urgent): void
+    public static function prefs(?string $json): array
+    {
+        $raw = $json ? json_decode($json, true) : null;
+        $tones = self::DEFAULT_TONES;
+        foreach ($tones as $kind => $_) {
+            $tone = $raw['tones'][$kind] ?? null;
+            if (in_array($tone, self::TONES, true)) {
+                $tones[$kind] = $tone;
+            }
+        }
+        return ['tones' => $tones, 'dog_reminders' => ($raw['dog_reminders'] ?? true) !== false];
+    }
+
+    /** Canal de Android que la app crea para ese tipo + tono, p. ej. "avisos_campanita" (src/services/push.ts). */
+    public static function channel(string $kind, string $tone): string
+    {
+        return "{$kind}_{$tone}";
+    }
+
+    /**
+     * Envía la misma notificación a varios usuarios, cada uno con su tono.
+     * @param array<int, array{id:int|string, fcm_token:string, notify_prefs?:?string}> $recipients
+     * @param array<string, string> $data
+     * @param string $kind avisos | urgentes | perritos
+     * @param string|null $tag notificaciones con el mismo tag se reemplazan en vez de amontonarse
+     * @return array<int, string> id de usuario → "ok" o el motivo del error
+     */
+    public static function sendToMany(array $recipients, string $title, string $body, array $data, string $kind, ?string $tag = null): array
     {
         $account = self::account();
         if ($account === null || !$recipients) {
-            return;
+            return [];
         }
 
         try {
             $accessToken = self::accessToken($account);
         } catch (\Throwable $e) {
             error_log('[FCM] No se pudo obtener access token: ' . $e->getMessage());
-            return;
+            return array_fill_keys(array_map(static fn($r) => (int) $r['id'], $recipients),
+                'Google no aceptó las llaves de Firebase: ' . $e->getMessage());
         }
 
+        [$icon, $color] = self::STYLE[$kind];
         $url = "https://fcm.googleapis.com/v1/projects/{$account['project_id']}/messages:send";
         $multi = curl_multi_init();
         $handles = [];
 
         foreach ($recipients as $r) {
+            $tone = self::prefs($r['notify_prefs'] ?? null)['tones'][$kind];
             $payload = [
                 'message' => [
                     'token' => $r['fcm_token'],
                     'notification' => ['title' => $title, 'body' => $body],
-                    'data' => $data,
+                    'data' => $data + ['kind' => $kind],
                     'android' => [
-                        'priority' => $urgent ? 'HIGH' : 'NORMAL',
-                        'notification' => [
-                            // Canales creados por la app (src/services/push.ts).
-                            'channel_id' => $urgent ? 'avisos_urgentes' : 'avisos',
-                            'sound' => 'default',
+                        // HIGH siempre: con NORMAL, Android las retrasa cuando el celular está en reposo.
+                        'priority' => 'HIGH',
+                        // Un recordatorio viejo ya no sirve; un aviso sí aunque el celular estuviera apagado.
+                        'ttl' => $kind === 'perritos' ? '300s' : '86400s',
+                        'notification' => array_filter([
+                            'channel_id' => self::channel($kind, $tone),
+                            'icon' => $icon,
+                            'color' => $color,
+                            'sound' => $tone === 'sistema' ? 'default' : "tono_$tone",
+                            'tag' => $tag,
+                            'notification_priority' => $kind === 'urgentes' ? 'PRIORITY_MAX' : 'PRIORITY_HIGH',
+                            'visibility' => 'PUBLIC',
                             'default_vibrate_timings' => true,
-                        ],
+                        ], static fn($v) => $v !== null),
                     ],
                 ],
             ];
@@ -108,20 +157,26 @@ final class Fcm
             }
         } while ($running && $status === CURLM_OK);
 
+        $results = [];
         foreach ($handles as $userId => $ch) {
             $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            if ($code === 404 || $code === 400) {
-                // Token caducado o app desinstalada: lo limpiamos para no reintentar.
-                $response = (string) curl_multi_getcontent($ch);
-                if (str_contains($response, 'UNREGISTERED') || str_contains($response, 'INVALID_ARGUMENT')) {
+            $response = (string) curl_multi_getcontent($ch);
+            if ($code === 200) {
+                $results[$userId] = 'ok';
+            } else {
+                $message = json_decode($response, true)['error']['message'] ?? (curl_error($ch) ?: "HTTP $code");
+                $results[$userId] = $message;
+                // Solo se borra el token si Firebase dice que ya no existe (app desinstalada o reinstalada).
+                // Un error del mensaje en sí (también 400) NO debe dejar a todos sin notificaciones.
+                if ($code === 404 || str_contains($response, 'UNREGISTERED') || str_contains($response, 'registration token')) {
                     Database::run('UPDATE users SET fcm_token = NULL WHERE id = ?', [$userId]);
                 }
-            } elseif ($code !== 200) {
-                error_log("[FCM] Usuario $userId → HTTP $code: " . curl_multi_getcontent($ch));
+                error_log("[FCM] Usuario $userId → HTTP $code: $response");
             }
             curl_multi_remove_handle($multi, $ch);
         }
         curl_multi_close($multi);
+        return $results;
     }
 
     /**

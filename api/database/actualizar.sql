@@ -10,7 +10,7 @@
 --  - No borra datos. Haz respaldo antes de todos modos:
 --      sudo mariadb-dump casa > ~/casa_respaldo_$(date +%Y%m%d_%H%M).sql
 --
---  Versión del esquema: 1.1  (incluye migrations/002, 003 y 004)
+--  Versión del esquema: 1.2  (incluye migrations/002, 003, 004 y 005)
 -- ============================================================================
 
 SET NAMES utf8mb4;
@@ -146,6 +146,12 @@ CREATE TABLE IF NOT EXISTS device_transfers (
   CONSTRAINT fk_transfer_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- v1.2: tonos de notificación por persona y recordatorios de los perritos.
+ALTER TABLE users
+  ADD COLUMN IF NOT EXISTS notify_prefs VARCHAR(255) NULL
+      COMMENT 'JSON: {tones:{avisos,urgentes,perritos}, dog_reminders}; NULL = valores por defecto'
+      AFTER fcm_token;
+
 -- Resultado: debe mostrar las tareas de cada perro y "dog_checks listo".
 SELECT d.name AS perro,
        GROUP_CONCAT(CONCAT(t.kind, ' ', t.label) ORDER BY t.sort_order SEPARATOR ', ') AS tareas
@@ -155,3 +161,7 @@ SELECT d.name AS perro,
 SELECT IF(COUNT(*) = 1, 'dog_checks listo', 'REVISAR dog_checks') AS estado
   FROM information_schema.COLUMNS
  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'dog_checks' AND COLUMN_NAME = 'task_id';
+
+SELECT IF(COUNT(*) = 1, 'notificaciones listo', 'REVISAR users.notify_prefs') AS estado
+  FROM information_schema.COLUMNS
+ WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'notify_prefs';
