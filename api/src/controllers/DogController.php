@@ -134,7 +134,8 @@ final class DogController
         return array_map(static fn(array $d) => [
             'id' => (int) $d['id'],
             'name' => $d['name'],
-            'photo_url' => $d['photo_path'] ? "$base/{$d['photo_path']}" : null,
+            // Si el archivo ya no está (carpeta borrada o movida), mejor la inicial que una imagen rota.
+            'photo_url' => $d['photo_path'] && is_file(ROOT . "/public/{$d['photo_path']}") ? "$base/{$d['photo_path']}" : null,
             'tasks' => $byDog[(int) $d['id']] ?? [],
         ], $dogs);
     }

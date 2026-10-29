@@ -73,7 +73,20 @@ try {
             foreach (Database::all('SELECT name, fcm_token IS NOT NULL AS ok FROM users ORDER BY name') as $u) {
                 echo $u['ok'] ? "✓ {$u['name']}: celular registrado\n" : "· {$u['name']}: sin celular registrado (debe abrir la app instalada y permitir notificaciones)\n";
             }
-            echo "Recordatorios: revisa con  systemctl list-timers casa-recordatorios.timer\n";
+            // Fotos de los perritos: el archivo debe existir y la URL pública debe ser la del dominio.
+            echo "\nFotos de los perritos (PUBLIC_URL = " . (env('PUBLIC_URL') ?? 'SIN DEFINIR') . "):\n";
+            foreach (Database::all('SELECT name, photo_path FROM dogs ORDER BY sort_order') as $d) {
+                if (!$d['photo_path']) {
+                    echo "· {$d['name']}: sin foto\n";
+                } elseif (is_readable(ROOT . "/public/{$d['photo_path']}")) {
+                    echo "✓ {$d['name']}: {$d['photo_path']}\n";
+                } else {
+                    echo "✗ {$d['name']}: falta el archivo public/{$d['photo_path']} → vuelve a subir la foto desde Ajustes\n";
+                }
+            }
+            $uploads = ROOT . '/public/uploads/dogs';
+            echo is_writable($uploads) ? "✓ public/uploads/dogs se puede escribir\n" : "✗ public/uploads/dogs no se puede escribir → sudo mkdir -p $uploads && sudo chown -R casa: " . ROOT . "/public/uploads\n";
+            echo "\nRecordatorios: revisa con  systemctl list-timers casa-recordatorios.timer\n";
             echo "Probar a un miembro:  php bin/casa-admin.php probar-push <telefono>\n";
             break;
 
